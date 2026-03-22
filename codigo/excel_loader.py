@@ -51,6 +51,24 @@ class ElectionDataLoader:
                 "nombre de comunidad",
                 "cca",
             ],
+            "poblacion": ["poblacion", "habitantes", "poblacion total"],
+            "numero_mesas": ["numero de mesas", "mesas", "n mesas"],
+            "censo_electoral_sin_cera": ["censo electoral sin cera", "censo cer", "censo sin cera"],
+            "censo_cera": ["censo cera", "total censo cera"],
+            "total_censo_electoral": ["total censo electoral", "censo electoral total"],
+            "total_votantes_cer": ["total votantes cer", "votantes cer"],
+            "total_votantes_cera": ["total votantes cera", "votantes cera"],
+            "total_votantes": ["total votantes", "votantes totales"],
+            "votos_validos": ["votos validos", "total votos validos"],
+            "votos_totales_candidaturas": [
+                "votos a candidaturas",
+                "votos candidaturas",
+                "total votos candidaturas",
+                "votos validos a candidaturas",
+                "votcands",
+            ],
+            "votos_blanco": ["votos en blanco", "votos blanco", "blanco"],
+            "votos_nulos": ["votos nulos", "nulos"],
             "partido_codigo": [
                 "cod candidatura",
                 "cod candidatura acumulado",
@@ -79,14 +97,7 @@ class ElectionDataLoader:
                 "abreviatura candidatura",
                 "siglas partido",
             ],
-            "votos": [
-                "votos",
-                "num votos",
-                "votos candidatura",
-                "votos obtenidos",
-                "votoscand",
-                "vot",
-            ],
+            "votos": ["votos", "num votos", "votos candidatura", "votos obtenidos", "votoscand", "vot"],
             "escanos_oficiales_partido": [
                 "diputados",
                 "escanos",
@@ -107,14 +118,6 @@ class ElectionDataLoader:
                 "dipu",
                 "np",
             ],
-            "votos_totales_candidaturas": [
-                "votos a candidaturas",
-                "votos candidaturas",
-                "total votos candidaturas",
-                "votos validos",
-                "votcands",
-                "votos validos candidaturas",
-            ],
         }
         self.required_fields = [
             "circunscripcion_codigo",
@@ -124,12 +127,25 @@ class ElectionDataLoader:
             "votos",
             "escanos_circunscripcion",
         ]
+        self.optional_general_fields = [
+            "comunidad_autonoma",
+            "poblacion",
+            "numero_mesas",
+            "censo_electoral_sin_cera",
+            "censo_cera",
+            "total_censo_electoral",
+            "total_votantes_cer",
+            "total_votantes_cera",
+            "total_votantes",
+            "votos_validos",
+            "votos_totales_candidaturas",
+            "votos_blanco",
+            "votos_nulos",
+        ]
 
     def load_election(self) -> Tuple[EleccionCongreso2023, List[str]]:
         if not os.path.exists(self.excel_path):
-            raise FileNotFoundError(
-                "No se encontro el archivo Excel en la ruta: {0}".format(self.excel_path)
-            )
+            raise FileNotFoundError("No se encontro el archivo Excel en la ruta: {0}".format(self.excel_path))
 
         rows, header_row_index, sheet_name = self._read_candidate_rows()
         if len(rows) == 0:
@@ -138,16 +154,11 @@ class ElectionDataLoader:
         election = EleccionCongreso2023(
             nombre="Elecciones generales al Congreso 2023",
             archivo_origen=self.excel_path,
-            metadatos_columnas={
-                "origen": sheet_name,
-                "fila_cabecera": str(header_row_index + 1),
-            },
+            metadatos_columnas={"origen": sheet_name, "fila_cabecera": str(header_row_index + 1)},
         )
         messages: List[str] = []
         messages.append(
-            "CONFIRMACION: Se selecciono la hoja '{0}' y la fila de cabeceras {1}.".format(
-                sheet_name, header_row_index + 1
-            )
+            "CONFIRMACION: Se selecciono la hoja '{0}' y la fila de cabeceras {1}.".format(sheet_name, header_row_index + 1)
         )
 
         for row in rows:
@@ -198,13 +209,9 @@ class ElectionDataLoader:
                 )
                 candidate_headers = headers
 
-            resolved_header_index = actual_header_index
-
-            if score > best_candidate_score or (
-                score == best_candidate_score and len(candidate_rows) > len(best_candidate_rows)
-            ):
+            if score > best_candidate_score or (score == best_candidate_score and len(candidate_rows) > len(best_candidate_rows)):
                 best_candidate_rows = candidate_rows
-                best_candidate_header_index = resolved_header_index
+                best_candidate_header_index = actual_header_index
                 best_candidate_sheet_name = sheet_name
                 best_candidate_score = score
                 best_candidate_headers = candidate_headers
@@ -212,17 +219,13 @@ class ElectionDataLoader:
         workbook.close()
 
         if best_candidate_header_index < 0:
-            raise ExcelStructureError(
-                "No se pudo localizar una fila de cabeceras valida en ninguna hoja del Excel."
-            )
-
+            raise ExcelStructureError("No se pudo localizar una fila de cabeceras valida en ninguna hoja del Excel.")
         if len(best_candidate_rows) == 0:
             raise ExcelStructureError(
                 "No se pudieron identificar filas de resultados utilizables. Columnas candidatas encontradas: {0}".format(
                     ", ".join(best_candidate_headers)
                 )
             )
-
         return best_candidate_rows, best_candidate_header_index, best_candidate_sheet_name
 
     def _read_non_empty_rows(self, sheet, maximum_rows: int) -> List[List[object]]:
@@ -241,7 +244,6 @@ class ElectionDataLoader:
             if row_counter >= maximum_rows:
                 break
         return rows
-
 
     def _find_first_non_empty_row_index(self, sheet) -> int:
         for row_index, data_row in enumerate(sheet.iter_rows(values_only=True)):
@@ -332,9 +334,7 @@ class ElectionDataLoader:
         party_name_row = header_rows[0]
         party_sigla_row = header_rows[1]
         main_header_row = self._row_to_headers(header_rows[2])
-        general_column_indexes = self._resolve_general_column_indexes(
-            main_header_row, party_name_row, party_sigla_row
-        )
+        general_column_indexes = self._resolve_general_column_indexes(main_header_row, party_name_row, party_sigla_row)
 
         flattened_rows: List[Dict[str, object]] = []
         current_index = 0
@@ -346,11 +346,7 @@ class ElectionDataLoader:
                 current_index = current_index + 1
                 continue
 
-            base_row = self._build_base_row_from_wide_format(
-                data_row,
-                main_header_row,
-                general_column_indexes,
-            )
+            base_row = self._build_base_row_from_wide_format(data_row, general_column_indexes)
             if base_row is None:
                 current_index = current_index + 1
                 continue
@@ -377,25 +373,25 @@ class ElectionDataLoader:
     def _build_base_row_from_wide_format(
         self,
         data_row: Tuple[object, ...],
-        headers: List[str],
         general_column_indexes: Dict[str, int],
     ) -> Optional[Dict[str, object]]:
         normalized_row: Dict[str, object] = {
-            "comunidad_autonoma": self._as_text(
-                self._value_at_index(data_row, general_column_indexes.get("comunidad_autonoma"))
-            ),
-            "circunscripcion_codigo": self._normalize_numeric_code(
-                self._value_at_index(data_row, general_column_indexes.get("circunscripcion_codigo"))
-            ),
-            "circunscripcion_nombre": self._as_text(
-                self._value_at_index(data_row, general_column_indexes.get("circunscripcion_nombre"))
-            ),
-            "escanos_circunscripcion": self._as_integer(
-                self._value_at_index(data_row, general_column_indexes.get("escanos_circunscripcion"))
-            ),
-            "votos_totales_candidaturas": self._as_optional_integer(
-                self._value_at_index(data_row, general_column_indexes.get("votos_totales_candidaturas"))
-            ),
+            "comunidad_autonoma": self._as_text(self._value_at_index(data_row, general_column_indexes.get("comunidad_autonoma"))),
+            "circunscripcion_codigo": self._normalize_numeric_code(self._value_at_index(data_row, general_column_indexes.get("circunscripcion_codigo"))),
+            "circunscripcion_nombre": self._as_text(self._value_at_index(data_row, general_column_indexes.get("circunscripcion_nombre"))),
+            "escanos_circunscripcion": self._as_integer(self._value_at_index(data_row, general_column_indexes.get("escanos_circunscripcion"))),
+            "votos_totales_candidaturas": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("votos_totales_candidaturas"))),
+            "poblacion": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("poblacion"))),
+            "numero_mesas": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("numero_mesas"))),
+            "censo_electoral_sin_cera": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("censo_electoral_sin_cera"))),
+            "censo_cera": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("censo_cera"))),
+            "total_censo_electoral": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("total_censo_electoral"))),
+            "total_votantes_cer": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("total_votantes_cer"))),
+            "total_votantes_cera": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("total_votantes_cera"))),
+            "total_votantes": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("total_votantes"))),
+            "votos_validos": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("votos_validos"))),
+            "votos_blanco": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("votos_blanco"))),
+            "votos_nulos": self._as_optional_integer(self._value_at_index(data_row, general_column_indexes.get("votos_nulos"))),
             "partido_sigla": "",
             "partido_codigo": "",
             "partido_nombre": "",
@@ -406,7 +402,6 @@ class ElectionDataLoader:
             return None
         return normalized_row
 
-
     def _resolve_general_column_indexes(
         self,
         headers: List[str],
@@ -415,20 +410,11 @@ class ElectionDataLoader:
     ) -> Dict[str, int]:
         indexes: Dict[str, int] = {}
         first_party_column_index = self._find_first_party_column_index(party_name_row, party_sigla_row)
-        for logical_name in (
-            "comunidad_autonoma",
-            "circunscripcion_codigo",
-            "circunscripcion_nombre",
-            "escanos_circunscripcion",
-            "votos_totales_candidaturas",
-        ):
-            index = self._find_general_header_index(
-                headers,
-                party_name_row,
-                party_sigla_row,
-                self.column_aliases[logical_name],
-                first_party_column_index,
-            )
+        for logical_name in ["circunscripcion_codigo", "circunscripcion_nombre", "escanos_circunscripcion"] + self.optional_general_fields:
+            aliases = self.column_aliases.get(logical_name)
+            if aliases is None:
+                continue
+            index = self._find_general_header_index(headers, party_name_row, party_sigla_row, aliases, first_party_column_index)
             if index >= 0:
                 indexes[logical_name] = index
 
@@ -444,9 +430,7 @@ class ElectionDataLoader:
             )
         return indexes
 
-    def _find_first_party_column_index(
-        self, party_name_row: List[object], party_sigla_row: List[object]
-    ) -> int:
+    def _find_first_party_column_index(self, party_name_row: List[object], party_sigla_row: List[object]) -> int:
         for index in range(max(len(party_name_row), len(party_sigla_row))):
             party_name = self._as_text(party_name_row[index] if index < len(party_name_row) else "")
             party_sigla = self._as_text(party_sigla_row[index] if index < len(party_sigla_row) else "")
@@ -517,14 +501,7 @@ class ElectionDataLoader:
                     next_header = self._normalize_text(main_header_row[column_index + 1])
                     if next_header == self._normalize_text("diputados"):
                         seats_value = data_row[column_index + 1] if column_index + 1 < len(data_row) else None
-
-                normalized_party = self._build_party_result_row(
-                    base_row=base_row,
-                    party_name=party_name,
-                    party_sigla=party_sigla,
-                    votes_value=votes_value,
-                    seats_value=seats_value,
-                )
+                normalized_party = self._build_party_result_row(base_row, party_name, party_sigla, votes_value, seats_value)
                 if normalized_party is not None:
                     rows.append(normalized_party)
                 column_index = column_index + 2
@@ -557,17 +534,6 @@ class ElectionDataLoader:
             return None
         return row
 
-    def _row_dict_from_headers(self, headers: List[str], data_row: Tuple[object, ...]) -> Dict[str, object]:
-        row_dictionary: Dict[str, object] = {}
-        column_index = 0
-        while column_index < len(headers):
-            value = None
-            if column_index < len(data_row):
-                value = data_row[column_index]
-            row_dictionary[headers[column_index]] = value
-            column_index = column_index + 1
-        return row_dictionary
-
     def _row_is_empty(self, row: Tuple[object, ...]) -> bool:
         for value in row:
             if value is not None and str(value).strip() != "":
@@ -598,9 +564,7 @@ class ElectionDataLoader:
         text = " ".join(text.split())
         return text
 
-    def _resolve_column_mapping(
-        self, headers: List[str], raise_error: bool = True
-    ) -> Dict[str, str]:
+    def _resolve_column_mapping(self, headers: List[str], raise_error: bool = True) -> Dict[str, str]:
         normalized_source_columns: Dict[str, str] = {}
         for column in headers:
             normalized_column = self._normalize_text(column)
@@ -617,7 +581,6 @@ class ElectionDataLoader:
             for field_name in self.required_fields:
                 if field_name not in mapping:
                     missing_fields.append(field_name)
-
             if len(missing_fields) > 0:
                 raise ExcelStructureError(
                     "No se pudieron identificar las columnas obligatorias: {0}. Columnas encontradas: {1}".format(
@@ -626,9 +589,7 @@ class ElectionDataLoader:
                 )
         return mapping
 
-    def _search_column_by_alias(
-        self, normalized_source_columns: Dict[str, str], aliases: List[str]
-    ) -> Optional[str]:
+    def _search_column_by_alias(self, normalized_source_columns: Dict[str, str], aliases: List[str]) -> Optional[str]:
         for alias in aliases:
             normalized_alias = self._normalize_text(alias)
             if normalized_alias in normalized_source_columns:
@@ -654,30 +615,19 @@ class ElectionDataLoader:
             for logical_name, source_name in column_mapping.items():
                 normalized_row[logical_name] = original_row.get(source_name)
 
-            normalized_row["comunidad_autonoma"] = self._as_text(
-                normalized_row.get("comunidad_autonoma", "")
-            )
+            normalized_row["comunidad_autonoma"] = self._as_text(normalized_row.get("comunidad_autonoma", ""))
             normalized_row["partido_sigla"] = self._as_text(normalized_row.get("partido_sigla", ""))
-            normalized_row["circunscripcion_codigo"] = self._normalize_numeric_code(
-                normalized_row.get("circunscripcion_codigo", "")
-            )
-            normalized_row["partido_codigo"] = self._normalize_numeric_code(
-                normalized_row.get("partido_codigo", "")
-            )
-            normalized_row["circunscripcion_nombre"] = self._as_text(
-                normalized_row.get("circunscripcion_nombre", "")
-            )
+            normalized_row["circunscripcion_codigo"] = self._normalize_numeric_code(normalized_row.get("circunscripcion_codigo", ""))
+            normalized_row["partido_codigo"] = self._normalize_numeric_code(normalized_row.get("partido_codigo", ""))
+            normalized_row["circunscripcion_nombre"] = self._as_text(normalized_row.get("circunscripcion_nombre", ""))
             normalized_row["partido_nombre"] = self._as_text(normalized_row.get("partido_nombre", ""))
             normalized_row["votos"] = self._as_integer(normalized_row.get("votos"))
-            normalized_row["escanos_circunscripcion"] = self._as_integer(
-                normalized_row.get("escanos_circunscripcion")
-            )
-            normalized_row["escanos_oficiales_partido"] = self._as_integer(
-                normalized_row.get("escanos_oficiales_partido"), default_value=0
-            )
-            normalized_row["votos_totales_candidaturas"] = self._as_optional_integer(
-                normalized_row.get("votos_totales_candidaturas")
-            )
+            normalized_row["escanos_circunscripcion"] = self._as_integer(normalized_row.get("escanos_circunscripcion"))
+            normalized_row["escanos_oficiales_partido"] = self._as_integer(normalized_row.get("escanos_oficiales_partido"), default_value=0)
+            for field_name in self.optional_general_fields:
+                if field_name == "comunidad_autonoma":
+                    continue
+                normalized_row[field_name] = self._as_optional_integer(normalized_row.get(field_name))
 
             if normalized_row["escanos_circunscripcion"] is None:
                 continue
@@ -727,17 +677,12 @@ class ElectionDataLoader:
     def _as_optional_integer(self, value: object) -> Optional[int]:
         return self._as_integer(value, default_value=None)
 
-    def _get_or_create_circunscripcion(
-        self, election: EleccionCongreso2023, row: Dict[str, object]
-    ) -> Circunscripcion:
+    def _get_or_create_circunscripcion(self, election: EleccionCongreso2023, row: Dict[str, object]) -> Circunscripcion:
         codigo = str(row["circunscripcion_codigo"])
         if codigo in election.circunscripciones:
-            circunscripcion_existente = election.circunscripciones[codigo]
-            if circunscripcion_existente.votos_totales_candidaturas_oficiales is None:
-                circunscripcion_existente.votos_totales_candidaturas_oficiales = row.get(
-                    "votos_totales_candidaturas"
-                )
-            return circunscripcion_existente
+            circ = election.circunscripciones[codigo]
+            self._merge_general_data(circ, row)
+            return circ
 
         circunscripcion = Circunscripcion(
             codigo=codigo,
@@ -746,9 +691,38 @@ class ElectionDataLoader:
             comunidad_autonoma=str(row.get("comunidad_autonoma", "")),
             escanos_oficiales_totales=int(row["escanos_circunscripcion"]),
             votos_totales_candidaturas_oficiales=row.get("votos_totales_candidaturas"),
+            poblacion=row.get("poblacion"),
+            numero_mesas=row.get("numero_mesas"),
+            censo_electoral_sin_cera=row.get("censo_electoral_sin_cera"),
+            censo_cera=row.get("censo_cera"),
+            total_censo_electoral=row.get("total_censo_electoral"),
+            total_votantes_cer=row.get("total_votantes_cer"),
+            total_votantes_cera=row.get("total_votantes_cera"),
+            total_votantes=row.get("total_votantes"),
+            votos_validos_oficiales=row.get("votos_validos"),
+            votos_blanco_oficiales=row.get("votos_blanco"),
+            votos_nulos_oficiales=row.get("votos_nulos"),
         )
         election.registrar_circunscripcion(circunscripcion)
         return circunscripcion
+
+    def _merge_general_data(self, circ: Circunscripcion, row: Dict[str, object]) -> None:
+        for attribute, row_key in (
+            ("votos_totales_candidaturas_oficiales", "votos_totales_candidaturas"),
+            ("poblacion", "poblacion"),
+            ("numero_mesas", "numero_mesas"),
+            ("censo_electoral_sin_cera", "censo_electoral_sin_cera"),
+            ("censo_cera", "censo_cera"),
+            ("total_censo_electoral", "total_censo_electoral"),
+            ("total_votantes_cer", "total_votantes_cer"),
+            ("total_votantes_cera", "total_votantes_cera"),
+            ("total_votantes", "total_votantes"),
+            ("votos_validos_oficiales", "votos_validos"),
+            ("votos_blanco_oficiales", "votos_blanco"),
+            ("votos_nulos_oficiales", "votos_nulos"),
+        ):
+            if getattr(circ, attribute) is None and row.get(row_key) is not None:
+                setattr(circ, attribute, row.get(row_key))
 
     def _build_partido(self, row: Dict[str, object]) -> Partido:
         return Partido(

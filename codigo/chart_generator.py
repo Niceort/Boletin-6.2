@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Iterable, List, Sequence, Tuple
 
 from matplotlib.figure import Figure
 
@@ -8,15 +8,11 @@ from models import Circunscripcion, EleccionCongreso2023
 
 
 class ChartGenerator:
-
     def build_votes_chart(self, circunscripcion_a: Circunscripcion, circunscripcion_b: Circunscripcion) -> Figure:
         figure = Figure(figsize=(7, 4), dpi=100)
         axis = figure.add_subplot(111)
         nombres = [circunscripcion_a.nombre, circunscripcion_b.nombre]
-        votos = [
-            circunscripcion_a.total_votos_validos_calculado,
-            circunscripcion_b.total_votos_validos_calculado,
-        ]
+        votos = [circunscripcion_a.total_votos_validos_calculado, circunscripcion_b.total_votos_validos_calculado]
         axis.bar(nombres, votos, color=["#2fa572", "#f39c12"])
         axis.set_title("Comparativa de votos validos")
         axis.set_ylabel("Votos")
@@ -27,15 +23,13 @@ class ChartGenerator:
         figure = Figure(figsize=(7, 4), dpi=100)
         axis = figure.add_subplot(111)
         nombres = [circunscripcion_a.nombre, circunscripcion_b.nombre]
-        escanos = [
-            circunscripcion_a.total_escanos_calculados,
-            circunscripcion_b.total_escanos_calculados,
-        ]
+        escanos = [circunscripcion_a.total_escanos_calculados, circunscripcion_b.total_escanos_calculados]
         axis.bar(nombres, escanos, color=["#7b61ff", "#ff6b6b"])
         axis.set_title("Comparativa de escaños calculados")
         axis.set_ylabel("Escaños")
         figure.tight_layout()
         return figure
+
     def build_party_votes_chart(self, election: EleccionCongreso2023, limit: int = 10) -> Figure:
         resumen = election.obtener_resumen_nacional_por_partido()[0:limit]
         etiquetas: List[str] = []
@@ -74,18 +68,61 @@ class ChartGenerator:
         figure.tight_layout()
         return figure
 
-    def build_circunscription_comparison_chart(
-        self, election: EleccionCongreso2023, codigo_a: str, codigo_b: str
-    ) -> Figure:
+    def build_circunscription_comparison_chart(self, election: EleccionCongreso2023, codigo_a: str, codigo_b: str) -> Figure:
         circ_a = election.circunscripciones[codigo_a]
         circ_b = election.circunscripciones[codigo_b]
+        return self.build_votes_chart(circ_a, circ_b)
 
-        figure = Figure(figsize=(7, 4), dpi=100)
-        axis = figure.add_subplot(111)
-        nombres = [circ_a.nombre, circ_b.nombre]
-        votos = [circ_a.total_votos_validos_calculado, circ_b.total_votos_validos_calculado]
-        axis.bar(nombres, votos, color=["#2fa572", "#f39c12"])
-        axis.set_title("Comparativa de votos validos")
-        axis.set_ylabel("Votos")
+    def build_distribution_chart(
+        self,
+        title: str,
+        labels: Sequence[str],
+        values: Sequence[int],
+        ylabel: str,
+        limit: int = 8,
+    ) -> Figure:
+        trimmed_labels, trimmed_values = self._trim_series(labels, values, limit)
+        figure = Figure(figsize=(9, 3.8), dpi=100)
+        pie_axis = figure.add_subplot(121)
+        bar_axis = figure.add_subplot(122)
+
+        if len(trimmed_values) == 0 or sum(trimmed_values) <= 0:
+            pie_axis.text(0.5, 0.5, "Sin datos", ha="center", va="center")
+            pie_axis.axis("off")
+            bar_axis.text(0.5, 0.5, "Sin datos", ha="center", va="center")
+            bar_axis.axis("off")
+            figure.tight_layout()
+            return figure
+
+        colors = [
+            "#1f77b4",
+            "#ff7f0e",
+            "#2ca02c",
+            "#d62728",
+            "#9467bd",
+            "#8c564b",
+            "#e377c2",
+            "#7f7f7f",
+            "#bcbd22",
+            "#17becf",
+        ]
+        pie_axis.pie(trimmed_values, labels=trimmed_labels, autopct="%1.1f%%", startangle=90, colors=colors[: len(trimmed_values)])
+        pie_axis.set_title(title + " · sectores")
+        bar_axis.bar(trimmed_labels, trimmed_values, color=colors[: len(trimmed_values)])
+        bar_axis.set_title(title + " · barras")
+        bar_axis.set_ylabel(ylabel)
+        bar_axis.tick_params(axis="x", rotation=35)
         figure.tight_layout()
         return figure
+
+    def _trim_series(self, labels: Sequence[str], values: Sequence[int], limit: int) -> Tuple[List[str], List[int]]:
+        pairs = [(str(label), int(value)) for label, value in zip(labels, values) if int(value) > 0]
+        pairs.sort(key=lambda item: (-item[1], item[0]))
+        if len(pairs) <= limit:
+            return [item[0] for item in pairs], [item[1] for item in pairs]
+        visible = pairs[: limit - 1]
+        others_total = 0
+        for _, value in pairs[limit - 1 :]:
+            others_total = others_total + value
+        visible.append(("Otros", others_total))
+        return [item[0] for item in visible], [item[1] for item in visible]

@@ -54,6 +54,17 @@ class Circunscripcion:
     comunidad_autonoma: str
     escanos_oficiales_totales: int
     votos_totales_candidaturas_oficiales: Optional[int] = None
+    poblacion: Optional[int] = None
+    numero_mesas: Optional[int] = None
+    censo_electoral_sin_cera: Optional[int] = None
+    censo_cera: Optional[int] = None
+    total_censo_electoral: Optional[int] = None
+    total_votantes_cer: Optional[int] = None
+    total_votantes_cera: Optional[int] = None
+    total_votantes: Optional[int] = None
+    votos_validos_oficiales: Optional[int] = None
+    votos_blanco_oficiales: Optional[int] = None
+    votos_nulos_oficiales: Optional[int] = None
     resultados_por_partido: Dict[str, ResultadoPartido] = field(default_factory=dict)
 
     def agregar_resultado(self, resultado: ResultadoPartido) -> str:
@@ -100,6 +111,14 @@ class Circunscripcion:
         for resultado in self.resultados_por_partido.values():
             acumulado = acumulado + resultado.escanos_oficiales
         return acumulado
+
+    @property
+    def votos_validos_calculados(self) -> int:
+        return self.total_votos_validos_calculado + (self.votos_blanco_oficiales or 0)
+
+    @property
+    def votos_emitidos_calculados(self) -> int:
+        return self.votos_validos_calculados + (self.votos_nulos_oficiales or 0)
 
     def obtener_porcentaje_partido(self, codigo_partido: str) -> float:
         if codigo_partido not in self.resultados_por_partido:

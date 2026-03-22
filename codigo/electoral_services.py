@@ -657,19 +657,14 @@ class FunctionsService:
                 return summary
         return self._build_all_community_summaries(election)[0]
 
-    def _get_reference_circunscription(self, election: EleccionCongreso2023, circunscripcion_codigo: str) -> Circunscripcion:
+    def _get_reference_circunscription(
+        self,
+        election: EleccionCongreso2023,
+        circunscripcion_codigo: str,
+    ) -> Circunscripcion:
         if circunscripcion_codigo in election.circunscripciones:
             return election.circunscripciones[circunscripcion_codigo]
         return election.obtener_circunscripciones_ordenadas()[0]
-                    circunscripcion.nombre,
-                    analysis["winner"],
-                    analysis["challenger"],
-                    analysis["votes_missing"],
-                )
-            )
-        if len(lines) == 0:
-            return "No hay información suficiente para analizar el último escaño."
-        return "Resumen de las primeras circunscripciones ordenadas alfabéticamente:\n- {0}".format("\n- ".join(lines))
 
     def _answer_cheapest_seats(self, election: EleccionCongreso2023) -> str:
         national = self._find_best_cost_per_seat_national(election, reverse=False)
@@ -824,15 +819,55 @@ class FunctionsService:
                 best_challenger = resultado.partido.get_identificador_presentacion()
         return {"winner": winner, "challenger": best_challenger, "votes_missing": best_missing_votes or 0}
 
-    def _find_cost_per_seat_national(self, election: EleccionCongreso2023, reverse: bool) -> Tuple[str, float]:
-                best_challenger_name = resultado.partido.get_identificador_presentacion()
-        if best_missing_votes is None:
-            best_missing_votes = 0
-        return {
-            "winner": winner.partido.get_identificador_presentacion(),
-            "challenger": best_challenger_name,
-            "votes_missing": best_missing_votes,
-        }
+def _analyze_last_seat(self, circ: Circunscripcion) -> Optional[Dict[str, object]]:
+    quotients: List[Tuple[float, int, str, int]] = []
+
+    for resultado in circ.resultados_por_partido.values():
+        if resultado.votos <= 0:
+            continue
+
+        divisor = 1
+        while divisor <= max(circ.escanos_oficiales_totales, 1):
+            quotients.append(
+                (
+                    float(resultado.votos) / float(divisor),
+                    resultado.votos,
+                    resultado.partido.codigo,
+                    divisor,
+                )
+            )
+            divisor = divisor + 1
+
+    if len(quotients) < circ.escanos_oficiales_totales or circ.escanos_oficiales_totales <= 0:
+        return None
+
+    quotients.sort(key=lambda item: (-item[0], -item[1], item[2], item[3]))
+
+    last_winning = quotients[circ.escanos_oficiales_totales - 1]
+    winner_code = str(last_winning[2])
+    threshold = float(last_winning[0])
+    winner = circ.resultados_por_partido[winner_code].partido.get_identificador_presentacion()
+
+    best_challenger = "Sin rival"
+    best_missing_votes: Optional[int] = None
+
+    for resultado in circ.resultados_por_partido.values():
+        if resultado.partido.codigo == winner_code:
+            continue
+
+        next_divisor = resultado.escanos_calculados + 1
+        required_votes = int(math.floor(threshold * float(next_divisor))) + 1
+        missing_votes = max(required_votes - resultado.votos, 0)
+
+        if best_missing_votes is None or missing_votes < best_missing_votes:
+            best_missing_votes = missing_votes
+            best_challenger = resultado.partido.get_identificador_presentacion()
+
+    return {
+        "winner": winner,
+        "challenger": best_challenger,
+        "votes_missing": best_missing_votes or 0,
+    }
 
     def _find_best_cost_per_seat_national(self, election: EleccionCongreso2023, reverse: bool) -> Tuple[str, float]:
         candidates: List[Tuple[str, float]] = []
@@ -843,21 +878,23 @@ class FunctionsService:
         candidates.sort(key=lambda item: (item[1], item[0]), reverse=reverse)
         return candidates[0]
 
-    def _find_cost_per_seat_territorial(self, election: EleccionCongreso2023, reverse: bool) -> Tuple[str, float, str]:
-        candidates: List[Tuple[str, float, str]] = []
-        for circ in election.obtener_circunscripciones_ordenadas():
-            for resultado in circ.resultados_por_partido.values():
-    def _find_best_cost_per_seat_territorial(self, election: EleccionCongreso2023, reverse: bool) -> Tuple[str, float, str]:
-        candidates: List[Tuple[str, float, str]] = []
-        for circunscripcion in election.obtener_circunscripciones_ordenadas():
-            for resultado in circunscripcion.resultados_por_partido.values():
-                if resultado.escanos_oficiales > 0:
-                    candidates.append(
-                        (
-                            resultado.partido.get_identificador_presentacion(),
-                            float(resultado.votos) / float(resultado.escanos_oficiales),
-                            circ.nombre,
-                        )
+def _find_best_cost_per_seat_territorial(
+    self,
+    election: EleccionCongreso2023,
+    reverse: bool,
+) -> Tuple[str, float, str]:
+    candidates: List[Tuple[str, float, str]] = []
+
+    for circ in election.obtener_circunscripciones_ordenadas():
+        for resultado in circ.resultados_por_partido.values():
+            if resultado.escanos_oficiales > 0:
+                candidates.append(
+                    (
+                        resultado.partido.get_identificador_presentacion(),
+                        float(resultado.votos) / float(resultado.escanos_oficiales),
+                        circ.nombre,
                     )
-        candidates.sort(key=lambda item: (item[1], item[0], item[2]), reverse=reverse)
-        return candidates[0]
+                )
+
+    candidates.sort(key=lambda item: (item[1], item[0], item[2]), reverse=reverse)
+    return candidates[0]

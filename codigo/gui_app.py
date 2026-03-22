@@ -223,6 +223,8 @@ class ElectionAnalyzerApplication(ctk.CTk):
         self.functions_container.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
         self.functions_container.grid_columnconfigure(0, weight=1)
         self.functions_chart_canvases = []
+        self.functions_text = ScrolledText(self.tab_functions, wrap="word")
+        self.functions_text.pack(fill="both", expand=True, padx=12, pady=12)
 
     def _build_charts_tab(self) -> None:
         self.tab_charts.grid_columnconfigure(0, weight=1)
@@ -484,6 +486,11 @@ class ElectionAnalyzerApplication(ctk.CTk):
                 chart_row = chart_row + 1
 
             row_index = row_index + 1
+        if self.election is None:
+            self._write_text(self.functions_text, "No hay datos cargados para calcular las funciones del boletin.")
+            return
+        report = self.functions_service.build_report(self.election)
+        self._write_text(self.functions_text, report)
 
     def render_charts(self) -> None:
         for widget in self.charts_container.winfo_children():

@@ -250,10 +250,10 @@ class FunctionsService:
         prompts = self._get_prompts()
         builders = {
             1: lambda: self._section_graphs_votes(prompts[0], circunscripcion, comunidad, nacional),
-            2: lambda: self._section_null_blank(prompts[1], election, community_summaries),
-            3: lambda: self._section_cera_participation(prompts[2], election, community_summaries),
+            2: lambda: self._section_null_blank(prompts[1], election),
+            3: lambda: self._section_cera_participation(prompts[2], election),
             4: lambda: self._section_parties_exactly_n(prompts[3], election, n_value),
-            5: lambda: self._section_cera_population(prompts[4], community_summaries),
+            5: lambda: self._section_cera_population(prompts[4], election),
             6: lambda: self._section_dhondt(prompts[5], election, circunscripcion),
             7: lambda: self._section_validation(prompts[6], election),
             8: lambda: self._section_graphs_seats(prompts[7], circunscripcion, comunidad, nacional),

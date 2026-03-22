@@ -10,7 +10,7 @@ from tkinter import END, filedialog
 from tkinter.scrolledtext import ScrolledText
 
 from chart_generator import ChartGenerator
-from electoral_services import SeatCalculatorService, StatisticsService, ValidationService
+from electoral_services import FunctionsService, SeatCalculatorService, StatisticsService, ValidationService
 from excel_loader import ElectionDataLoader, ExcelStructureError
 from models import DomainMessageBuilder, EleccionCongreso2023
 from party_color_registry import PartyColorRegistry
@@ -33,6 +33,7 @@ class ElectionAnalyzerApplication(ctk.CTk):
         self.validation_service = ValidationService()
         self.seat_calculator_service = SeatCalculatorService()
         self.statistics_service = StatisticsService()
+        self.functions_service = FunctionsService()
         self.chart_generator = ChartGenerator()
         self.territorial_view_service = TerritorialViewService()
         self.party_color_registry = PartyColorRegistry()
@@ -79,11 +80,13 @@ class ElectionAnalyzerApplication(ctk.CTk):
         self.tab_results = self.tabview.add("Resultados")
         self.tab_validations = self.tabview.add("Validaciones")
         self.tab_statistics = self.tabview.add("Estadisticas")
+        self.tab_functions = self.tabview.add("Funciones")
         self.tab_charts = self.tabview.add("Graficos")
 
         self._build_results_tab()
         self._build_validation_tab()
         self._build_statistics_tab()
+        self._build_functions_tab()
         self._build_charts_tab()
 
     def _build_results_tab(self) -> None:
@@ -192,6 +195,10 @@ class ElectionAnalyzerApplication(ctk.CTk):
         self.statistics_text = ScrolledText(self.tab_statistics, wrap="word")
         self.statistics_text.pack(fill="both", expand=True, padx=12, pady=12)
 
+    def _build_functions_tab(self) -> None:
+        self.functions_text = ScrolledText(self.tab_functions, wrap="word")
+        self.functions_text.pack(fill="both", expand=True, padx=12, pady=12)
+
     def _build_charts_tab(self) -> None:
         self.tab_charts.grid_columnconfigure(0, weight=1)
         self.tab_charts.grid_rowconfigure(1, weight=1)
@@ -267,6 +274,7 @@ class ElectionAnalyzerApplication(ctk.CTk):
             self.recalculate_and_validate()
             self.refresh_results_view()
             self.render_statistics()
+            self.render_functions()
             self.render_charts()
         except FileNotFoundError as error:
             self.status_label.configure(text=str(error))
@@ -291,6 +299,7 @@ class ElectionAnalyzerApplication(ctk.CTk):
         self._write_text(self.validation_text, "\n".join(self.validation_messages))
         self.refresh_results_view()
         self.render_statistics()
+        self.render_functions()
         self.render_charts()
 
     def populate_selectors(self) -> None:
@@ -401,6 +410,13 @@ class ElectionAnalyzerApplication(ctk.CTk):
             return
         report = self.statistics_service.build_report(self.election)
         self._write_text(self.statistics_text, report)
+
+    def render_functions(self) -> None:
+        if self.election is None:
+            self._write_text(self.functions_text, "No hay datos cargados para calcular las funciones del boletin.")
+            return
+        report = self.functions_service.build_report(self.election)
+        self._write_text(self.functions_text, report)
 
     def render_charts(self) -> None:
         for widget in self.charts_container.winfo_children():

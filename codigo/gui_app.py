@@ -44,6 +44,8 @@ class ElectionAnalyzerApplication(ctk.CTk):
         self.current_territorial_view = None
         self.current_results_options: List[str] = []
         self.current_coalition_codes: List[str] = []
+        self.functions_chart_canvases: List[FigureCanvasTkAgg] = []
+        self.chart_tab_canvases: List[FigureCanvasTkAgg] = []
 
         self._build_layout()
 
@@ -222,9 +224,6 @@ class ElectionAnalyzerApplication(ctk.CTk):
         self.functions_container = ctk.CTkScrollableFrame(self.tab_functions, label_text="Boletín 6 · Funciones")
         self.functions_container.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
         self.functions_container.grid_columnconfigure(0, weight=1)
-        self.functions_chart_canvases = []
-        self.functions_text = ScrolledText(self.tab_functions, wrap="word")
-        self.functions_text.pack(fill="both", expand=True, padx=12, pady=12)
 
     def _build_charts_tab(self) -> None:
         self.tab_charts.grid_columnconfigure(0, weight=1)
@@ -441,9 +440,9 @@ class ElectionAnalyzerApplication(ctk.CTk):
         self._write_text(self.statistics_text, report)
 
     def render_functions(self) -> None:
+        self._clear_canvas_list(self.functions_chart_canvases)
         for widget in self.functions_container.winfo_children():
             widget.destroy()
-        self.functions_chart_canvases = []
 
         if self.election is None:
             empty_label = ctk.CTkLabel(self.functions_container, text="No hay datos cargados para calcular las funciones del boletín.")
@@ -486,13 +485,9 @@ class ElectionAnalyzerApplication(ctk.CTk):
                 chart_row = chart_row + 1
 
             row_index = row_index + 1
-        if self.election is None:
-            self._write_text(self.functions_text, "No hay datos cargados para calcular las funciones del boletin.")
-            return
-        report = self.functions_service.build_report(self.election)
-        self._write_text(self.functions_text, report)
 
     def render_charts(self) -> None:
+        self._clear_canvas_list(self.chart_tab_canvases)
         for widget in self.charts_container.winfo_children():
             widget.destroy()
 
@@ -508,11 +503,13 @@ class ElectionAnalyzerApplication(ctk.CTk):
         canvas_votes = FigureCanvasTkAgg(figure_votes, master=self.charts_container)
         canvas_votes.draw()
         canvas_votes.get_tk_widget().grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        self.chart_tab_canvases.append(canvas_votes)
 
         figure_seats = self.chart_generator.build_seats_chart(circ_a, circ_b)
         canvas_seats = FigureCanvasTkAgg(figure_seats, master=self.charts_container)
         canvas_seats.draw()
         canvas_seats.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
+        self.chart_tab_canvases.append(canvas_seats)
 
     def _get_selected_circunscription_for_charts(self, selector_value: str):
         if self.election is None:
@@ -522,6 +519,18 @@ class ElectionAnalyzerApplication(ctk.CTk):
         circ_code = selector_value.split(" - ", 1)[0]
         return self.election.circunscripciones.get(circ_code)
 
+
+
+    def _clear_canvas_list(self, canvases: List[FigureCanvasTkAgg]) -> None:
+        while len(canvases) > 0:
+            canvas = canvases.pop()
+            try:
+                canvas.get_tk_widget().destroy()
+            except tk.TclError:
+                pass
+            figure = getattr(canvas, "figure", None)
+            if figure is not None:
+                figure.clf()
 
     def _parse_functions_n_value(self) -> int:
         raw_value = self.functions_n_entry.get().strip()

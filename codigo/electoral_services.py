@@ -149,7 +149,7 @@ class StatisticsService:
         lines.append("")
         lines.append("TOP 10 PARTIDOS POR VOTO")
         for index, item in enumerate(statistics["ranking_partidos"][0:10], start=1):
-            etiqueta = str(item["sigla"]) if str(item["sigla"]) else str(item["nombre"])
+            etiqueta = self._format_party_label(item)
             lines.append(
                 "{0}. {1}: {2} votos | {3} escaños oficiales | {4} calculados".format(
                     index, etiqueta, item["votos"], item["escanos_oficiales"], item["escanos_calculados"]
@@ -234,11 +234,18 @@ class StatisticsService:
         resumen.sort(key=lambda item: (-int(item["votos"]), str(item["circunscripcion"])))
         return resumen
 
+    def _format_party_label(self, item: Dict[str, object]) -> str:
+        sigla = str(item.get("sigla") or "").strip()
+        if sigla != "":
+            return sigla
+        return str(item.get("nombre") or "").strip()
+
 
 class FunctionsService:
     def build_sections(self, election: EleccionCongreso2023, circunscripcion_codigo: str, n_value: int) -> List[FunctionSection]:
         circunscripcion = self._get_reference_circunscription(election, circunscripcion_codigo)
-        comunidad = self._build_community_summary(election, circunscripcion.comunidad_autonoma)
+        community_summaries = self._build_all_community_summaries(election)
+        comunidad = self._build_community_summary(community_summaries, circunscripcion.comunidad_autonoma)
         nacional = self._build_national_summary(election)
         prompts = self._get_prompts()
         builders = {
@@ -263,21 +270,6 @@ class FunctionsService:
             section.numero = number
             sections.append(section)
         return sections
-    def build_report(self, election: EleccionCongreso2023) -> str:
-        sections: List[str] = []
-        sections.append("BOLETIN 6 DE EJERCICIOS (SEMANA DEL 23 DE MARZO)")
-        sections.append("")
-        sections.append(
-            "Enunciado:\nEn el Excel que se acompaña tenemos los resultados de las elecciones generales del año 2023 para la elección del Congreso de los Diputados. En este problema vamos a preparar un software que nos ayude a ser los mejores tertulianos de la TV en la noche electoral con información y datos contrastados."
-        )
-        sections.append("")
-        for index, prompt in enumerate(self._get_prompts(), start=1):
-            sections.append("{0}) Enunciado:".format(index))
-            sections.append(prompt)
-            sections.append("Respuesta:")
-            sections.append(self._build_answer(index, election))
-            sections.append("")
-        return "\n".join(sections).strip()
 
     def _get_prompts(self) -> List[str]:
         return [
@@ -309,20 +301,20 @@ class FunctionsService:
         ]
         return FunctionSection(0, prompt, respuesta, charts)
 
-    def _section_null_blank(self, prompt: str, election: EleccionCongreso2023) -> FunctionSection:
+    def _section_null_blank(self, prompt: str, election: EleccionCongreso2023, community_summaries: List[Dict[str, object]]) -> FunctionSection:
         circ_nulos = self._max_ratio_circ(election, lambda c: c.votos_nulos_oficiales or 0, lambda c: c.total_votantes or 0)
         circ_blancos = self._max_ratio_circ(election, lambda c: c.votos_blanco_oficiales or 0, lambda c: c.total_votantes or 0)
-        ccaa_nulos = self._max_ratio_community(election, "votos_nulos_oficiales", "total_votantes")
-        ccaa_blancos = self._max_ratio_community(election, "votos_blanco_oficiales", "total_votantes")
+        ccaa_nulos = self._max_ratio_community(community_summaries, "votos_nulos_oficiales", "total_votantes")
+        ccaa_blancos = self._max_ratio_community(community_summaries, "votos_blanco_oficiales", "total_votantes")
         respuesta = (
             "Mayor porcentaje de votos nulos: circunscripción {0} ({1:.2f}%) y CCAA {2} ({3:.2f}%).\n"
             "Mayor porcentaje de votos en blanco: circunscripción {4} ({5:.2f}%) y CCAA {6} ({7:.2f}%)."
         ).format(circ_nulos[0], circ_nulos[1], ccaa_nulos[0], ccaa_nulos[1], circ_blancos[0], circ_blancos[1], ccaa_blancos[0], ccaa_blancos[1])
         return FunctionSection(0, prompt, respuesta)
 
-    def _section_cera_participation(self, prompt: str, election: EleccionCongreso2023) -> FunctionSection:
+    def _section_cera_participation(self, prompt: str, election: EleccionCongreso2023, community_summaries: List[Dict[str, object]]) -> FunctionSection:
         circ = self._max_ratio_circ(election, lambda c: c.total_votantes_cera or 0, lambda c: c.censo_cera or 0)
-        ccaa = self._max_ratio_community(election, "total_votantes_cera", "censo_cera")
+        ccaa = self._max_ratio_community(community_summaries, "total_votantes_cera", "censo_cera")
         respuesta = (
             "La mayor participación CERA se dio en la circunscripción {0} con un {1:.2f}% del censo CERA y en la CCAA {2} con un {3:.2f}% ."
         ).format(circ[0], circ[1], ccaa[0], ccaa[1])
@@ -342,14 +334,16 @@ class FunctionsService:
             respuesta = "Partidos presentados exactamente en n={0} circunscripciones:\n- {1}".format(n_value, "\n- ".join(partidos))
         return FunctionSection(0, prompt, respuesta)
 
-    def _section_cera_population(self, prompt: str, election: EleccionCongreso2023) -> FunctionSection:
+    def _section_cera_population(self, prompt: str, community_summaries: List[Dict[str, object]]) -> FunctionSection:
         ratios: List[Tuple[str, float, int, int]] = []
-        for comunidad in self._build_all_community_summaries(election):
+        for comunidad in community_summaries:
             poblacion = int(comunidad.get("poblacion") or 0)
             votantes_cera = int(comunidad.get("total_votantes_cera") or 0)
             if poblacion > 0:
                 ratios.append((str(comunidad["nombre"]), (float(votantes_cera) / float(poblacion)) * 100.0, votantes_cera, poblacion))
         ratios.sort(key=lambda item: (-item[1], item[0]))
+        if len(ratios) == 0:
+            return FunctionSection(0, prompt, "No hay datos suficientes de población y votantes CERA para calcular esta proporción.")
         top = ratios[:10]
         respuesta = "CCAA con mayor número de votantes CERA en proporción con su población:\n- " + "\n- ".join(
             "{0}: {1:.4f}% ({2} votantes CERA sobre {3} habitantes)".format(nombre, ratio, votantes, poblacion)
@@ -358,31 +352,37 @@ class FunctionsService:
         return FunctionSection(0, prompt, respuesta)
 
     def _section_dhondt(self, prompt: str, election: EleccionCongreso2023, circ: Circunscripcion) -> FunctionSection:
+        selected_summary: List[str] = []
+        for resultado in circ.obtener_resultados_ordenados_por_votos():
+            if resultado.escanos_calculados > 0:
+                selected_summary.append("{0}={1}".format(resultado.partido.get_identificador_presentacion(), resultado.escanos_calculados))
         lines: List[str] = []
         for circunscripcion in election.obtener_circunscripciones_ordenadas()[:5]:
             resumen = []
             for resultado in circunscripcion.obtener_resultados_ordenados_por_votos():
                 if resultado.escanos_calculados > 0:
                     resumen.append("{0}={1}".format(resultado.partido.get_identificador_presentacion(), resultado.escanos_calculados))
-            lines.append("{0}: {1}".format(circunscripcion.nombre, ", ".join(resumen)))
+            lines.append("{0}: {1}".format(circunscripcion.nombre, ", ".join(resumen) if len(resumen) > 0 else "sin escaños asignados"))
         respuesta = (
-            "La función está implementada para todas las circunscripciones. En la circunscripción seleccionada ({0}) devuelve el reparto calculado por D'Hondt y, además, se muestran ejemplos reales:\n- {1}"
-        ).format(circ.nombre, "\n- ".join(lines))
+            "La función está implementada para todas las circunscripciones. En la circunscripción seleccionada ({0}) el reparto calculado por D'Hondt es: {1}.\n"
+            "Ejemplos adicionales:\n- {2}"
+        ).format(circ.nombre, ", ".join(selected_summary) if len(selected_summary) > 0 else "sin escaños asignados", "\n- ".join(lines))
         return FunctionSection(0, prompt, respuesta)
 
     def _section_validation(self, prompt: str, election: EleccionCongreso2023) -> FunctionSection:
         total_checks = 0
         failed_checks = 0
         failed_lines: List[str] = []
+        total_circunscripciones = len(election.circunscripciones)
         for circ in election.obtener_circunscripciones_ordenadas():
             checks = self._validate_all_consistency_rules(circ)
             total_checks = total_checks + len(checks)
-            for label, ok, detail in checks:
+            for _, ok, detail in checks:
                 if not ok:
                     failed_checks = failed_checks + 1
                     failed_lines.append("{0}: {1}".format(circ.nombre, detail))
         if failed_checks == 0:
-            respuesta = "Todas las comprobaciones de coherencia del Excel se cumplen: {0} validaciones superadas en 52 circunscripciones.".format(total_checks)
+            respuesta = "Todas las comprobaciones de coherencia del Excel se cumplen: {0} validaciones superadas en {1} circunscripciones.".format(total_checks, total_circunscripciones)
         else:
             respuesta = "Se detectaron {0} incidencias sobre {1} comprobaciones. Primeras diferencias:\n- {2}".format(
                 failed_checks, total_checks, "\n- ".join(failed_lines[:20])
@@ -404,122 +404,6 @@ class FunctionsService:
         lines: List[str] = []
         for circ in election.obtener_circunscripciones_ordenadas():
             analysis = self._analyze_last_seat(circ)
-    def _build_answer(self, index: int, election: EleccionCongreso2023) -> str:
-        handlers = {
-            1: self._answer_graphical_votes,
-            2: self._answer_missing_null_blank,
-            3: self._answer_missing_cera,
-            4: self._answer_parties_exactly_n,
-            5: self._answer_missing_population_cera,
-            6: self._answer_dhondt_summary,
-            7: self._answer_validation_summary,
-            8: self._answer_graphical_seats,
-            9: self._answer_last_seat,
-            10: self._answer_cheapest_seats,
-            11: self._answer_most_expensive_seats,
-            12: self._answer_lowest_votes_per_seat_circunscriptions,
-            13: self._answer_party_most_votes_without_seat,
-            14: self._answer_lowest_vote_pairs,
-        }
-        return handlers[index](election)
-
-    def _answer_graphical_votes(self, election: EleccionCongreso2023) -> str:
-        national = election.obtener_resumen_nacional_por_partido()[0:5]
-        top_text = ", ".join(
-            "{0} ({1} votos)".format(self._label_item(item), item["votos"]) for item in national
-        )
-        return (
-            "La aplicación ya dispone de representación visual en las pestañas Resultados y Graficos. "
-            "A nivel nacional, los partidos con más voto son: {0}. "
-            "Además, desde el modelo actual se puede agregar por circunscripción y por comunidad autónoma para alimentar esos gráficos; esta pestaña resume los cálculos en texto."
-        ).format(top_text)
-
-    def _answer_missing_null_blank(self, _: EleccionCongreso2023) -> str:
-        return (
-            "No es posible responder con exactitud usando la estructura de datos cargada actualmente, "
-            "porque el importador no está leyendo campos de votos nulos ni votos en blanco. "
-            "La pestaña Funciones lo deja indicado explícitamente para no inventar datos."
-        )
-
-    def _answer_missing_cera(self, _: EleccionCongreso2023) -> str:
-        return (
-            "No es posible calcularlo con el modelo actual porque no se están cargando columnas de participación CERA por circunscripción o comunidad autónoma."
-        )
-
-    def _answer_parties_exactly_n(self, election: EleccionCongreso2023) -> str:
-        counts: Dict[int, List[str]] = {}
-        appearances: Dict[str, int] = {}
-        labels: Dict[str, str] = {}
-        for circunscripcion in election.circunscripciones.values():
-            for codigo, resultado in circunscripcion.resultados_por_partido.items():
-                appearances[codigo] = appearances.get(codigo, 0) + 1
-                labels[codigo] = resultado.partido.get_identificador_presentacion()
-        for codigo, value in appearances.items():
-            counts.setdefault(value, []).append(labels[codigo])
-        lines: List[str] = []
-        for n in sorted(counts.keys())[0:10]:
-            partidos = sorted(counts[n])
-            lines.append("n={0}: {1}".format(n, ", ".join(partidos[:12]) + ("..." if len(partidos) > 12 else "")))
-        if len(lines) == 0:
-            return "No hay partidos cargados."
-        return "La función queda resumida por valores de n presentes en el dataset:\n- {0}".format("\n- ".join(lines))
-
-    def _answer_missing_population_cera(self, _: EleccionCongreso2023) -> str:
-        return (
-            "No es posible calcularlo con precisión porque faltan dos datos en la carga actual: votantes CERA y población total por CCAA."
-        )
-
-    def _answer_dhondt_summary(self, election: EleccionCongreso2023) -> str:
-        lines: List[str] = []
-        for circunscripcion in election.obtener_circunscripciones_ordenadas()[0:5]:
-            resumen = []
-            for resultado in circunscripcion.obtener_resultados_ordenados_por_votos():
-                if resultado.escanos_calculados > 0:
-                    resumen.append(
-                        "{0}={1}".format(resultado.partido.get_identificador_presentacion(), resultado.escanos_calculados)
-                    )
-            lines.append("{0}: {1}".format(circunscripcion.nombre, ", ".join(resumen[:8])))
-        return (
-            "La función está implementada y recalcula los escaños de todas las circunscripciones con D'Hondt y barrera del 3%. "
-            "Ejemplos de salida:\n- {0}"
-        ).format("\n- ".join(lines))
-
-    def _answer_validation_summary(self, election: EleccionCongreso2023) -> str:
-        total = 0
-        matching = 0
-        mismatches: List[str] = []
-        for circunscripcion in election.obtener_circunscripciones_ordenadas():
-            total = total + 1
-            has_difference = False
-            for resultado in circunscripcion.resultados_por_partido.values():
-                if resultado.escanos_oficiales != resultado.escanos_calculados:
-                    has_difference = True
-                    break
-            if has_difference:
-                mismatches.append(circunscripcion.nombre)
-            else:
-                matching = matching + 1
-        if len(mismatches) == 0:
-            return "Los resultados calculados coinciden con los del Excel en las {0} circunscripciones cargadas.".format(total)
-        return (
-            "Coinciden {0} de {1} circunscripciones. Hay diferencias en: {2}."
-        ).format(matching, total, ", ".join(mismatches[:10]))
-
-    def _answer_graphical_seats(self, election: EleccionCongreso2023) -> str:
-        national = [item for item in election.obtener_resumen_nacional_por_partido() if int(item["escanos_oficiales"]) > 0][0:5]
-        top_text = ", ".join(
-            "{0} ({1} escaños)".format(self._label_item(item), item["escanos_oficiales"]) for item in national
-        )
-        return (
-            "La aplicación ya representa visualmente los escaños en Resultados y Graficos. "
-            "A nivel nacional destacan: {0}. "
-            "La información territorial por circunscripción está disponible y puede agregarse también por comunidad autónoma desde los datos cargados."
-        ).format(top_text)
-
-    def _answer_last_seat(self, election: EleccionCongreso2023) -> str:
-        lines: List[str] = []
-        for circunscripcion in election.obtener_circunscripciones_ordenadas()[0:10]:
-            analysis = self._analyze_last_seat(circunscripcion)
             if analysis is None:
                 continue
             lines.append(
@@ -527,11 +411,15 @@ class FunctionsService:
                     circ.nombre, analysis["winner"], analysis["challenger"], analysis["votes_missing"]
                 )
             )
+        if len(lines) == 0:
+            return FunctionSection(0, prompt, "No hay datos suficientes para analizar el último escaño asignado.")
         return FunctionSection(0, prompt, "\n".join(lines))
 
     def _section_cheapest_seats(self, prompt: str, election: EleccionCongreso2023) -> FunctionSection:
         national = self._find_cost_per_seat_national(election, reverse=False)
         territorial = self._find_cost_per_seat_territorial(election, reverse=False)
+        if national is None or territorial is None:
+            return FunctionSection(0, prompt, "No hay escaños suficientes para calcular el coste por escaño.")
         respuesta = (
             "A nivel nacional, el escaño más barato corresponde a {0} con {1:.2f} votos por escaño.\n"
             "A nivel de circunscripción, el caso más barato es {2} en {3} con {4:.2f} votos por escaño."
@@ -541,6 +429,8 @@ class FunctionsService:
     def _section_expensive_seats(self, prompt: str, election: EleccionCongreso2023) -> FunctionSection:
         national = self._find_cost_per_seat_national(election, reverse=True)
         territorial = self._find_cost_per_seat_territorial(election, reverse=True)
+        if national is None or territorial is None:
+            return FunctionSection(0, prompt, "No hay escaños suficientes para calcular el coste por escaño.")
         respuesta = (
             "A nivel nacional, el escaño más caro corresponde a {0} con {1:.2f} votos por escaño.\n"
             "A nivel de circunscripción, el caso más caro es {2} en {3} con {4:.2f} votos por escaño."
@@ -553,6 +443,8 @@ class FunctionsService:
             if circ.escanos_oficiales_totales > 0:
                 ranking.append((circ.nombre, float(circ.total_votos_validos_calculado) / float(circ.escanos_oficiales_totales)))
         ranking.sort(key=lambda item: (item[1], item[0]))
+        if len(ranking) == 0:
+            return FunctionSection(0, prompt, "No hay circunscripciones con escaños para calcular votos por diputado.")
         respuesta = "Las circunscripciones donde hacen falta menos votos para conseguir un diputado son:\n- " + "\n- ".join(
             "{0}: {1:.2f} votos por diputado".format(nombre, ratio) for nombre, ratio in ranking[:10]
         )
@@ -576,6 +468,8 @@ class FunctionsService:
                 if resultado.votos > 0:
                     pairs.append((resultado.votos, resultado.partido.get_identificador_presentacion(), circ.nombre))
         pairs.sort(key=lambda item: (item[0], item[1], item[2]))
+        if len(pairs) == 0:
+            return FunctionSection(0, prompt, "No hay parejas partido-circunscripción con votos mayores que cero.")
         respuesta = "Tomando n={0}, las parejas con menos votos mayores que cero son:\n- ".format(n_value) + "\n- ".join(
             "{0} en {1}: {2} votos".format(partido, circ, votos) for votos, partido, circ in pairs[:n_value]
         )
@@ -651,78 +545,24 @@ class FunctionsService:
         results.sort(key=lambda item: str(item["nombre"]))
         return results
 
-    def _build_community_summary(self, election: EleccionCongreso2023, comunidad_nombre: str) -> Dict[str, object]:
-        for summary in self._build_all_community_summaries(election):
+    def _build_community_summary(self, community_summaries: List[Dict[str, object]], comunidad_nombre: str) -> Dict[str, object]:
+        for summary in community_summaries:
             if str(summary["nombre"]) == comunidad_nombre:
                 return summary
-        return self._build_all_community_summaries(election)[0]
+        if len(community_summaries) > 0:
+            return community_summaries[0]
+        return {"nombre": "Sin comunidad", "ranking_votos": [], "ranking_escanos": []}
 
-    def _get_reference_circunscription(
-        self,
-        election: EleccionCongreso2023,
-        circunscripcion_codigo: str,
-    ) -> Circunscripcion:
+    def _get_reference_circunscription(self, election: EleccionCongreso2023, circunscripcion_codigo: str) -> Circunscripcion:
         if circunscripcion_codigo in election.circunscripciones:
             return election.circunscripciones[circunscripcion_codigo]
         return election.obtener_circunscripciones_ordenadas()[0]
 
-    def _answer_cheapest_seats(self, election: EleccionCongreso2023) -> str:
-        national = self._find_best_cost_per_seat_national(election, reverse=False)
-        territorial = self._find_best_cost_per_seat_territorial(election, reverse=False)
-        return (
-            "A nivel nacional, el escaño más barato corresponde a {0} con {1:.2f} votos por escaño. "
-            "A nivel de circunscripción, el caso más barato es {2} en {3} con {4:.2f} votos por escaño."
-        ).format(national[0], national[1], territorial[0], territorial[2], territorial[1])
-
-    def _answer_most_expensive_seats(self, election: EleccionCongreso2023) -> str:
-        national = self._find_best_cost_per_seat_national(election, reverse=True)
-        territorial = self._find_best_cost_per_seat_territorial(election, reverse=True)
-        return (
-            "A nivel nacional, el escaño más caro corresponde a {0} con {1:.2f} votos por escaño. "
-            "A nivel de circunscripción, el caso más caro es {2} en {3} con {4:.2f} votos por escaño."
-        ).format(national[0], national[1], territorial[0], territorial[2], territorial[1])
-
-    def _answer_lowest_votes_per_seat_circunscriptions(self, election: EleccionCongreso2023) -> str:
-        ranking: List[Tuple[str, float]] = []
-        for circunscripcion in election.obtener_circunscripciones_ordenadas():
-            if circunscripcion.escanos_oficiales_totales > 0:
-                ranking.append(
-                    (
-                        circunscripcion.nombre,
-                        float(circunscripcion.total_votos_validos_calculado) / float(circunscripcion.escanos_oficiales_totales),
-                    )
-                )
-        ranking.sort(key=lambda item: (item[1], item[0]))
-        lines = ["{0}: {1:.2f} votos por diputado".format(name, value) for name, value in ranking[0:10]]
-        return "Las circunscripciones donde hacen falta menos votos por diputado son:\n- {0}".format("\n- ".join(lines))
-
-    def _answer_party_most_votes_without_seat(self, election: EleccionCongreso2023) -> str:
-        national_candidates = [item for item in election.obtener_resumen_nacional_por_partido() if int(item["escanos_oficiales"]) == 0]
-        if len(national_candidates) == 0:
-            return "Todos los partidos con votos lograron al menos un escaño nacional en los datos cargados."
-        item = national_candidates[0]
-        return "El partido con más votos sin escaño es {0}, con {1} votos a nivel nacional.".format(self._label_item(item), item["votos"])
-
-    def _answer_lowest_vote_pairs(self, election: EleccionCongreso2023) -> str:
-        pairs: List[Tuple[int, str, str]] = []
-        for circunscripcion in election.obtener_circunscripciones_ordenadas():
-            for resultado in circunscripcion.resultados_por_partido.values():
-                if resultado.votos > 0:
-                    pairs.append(
-                        (
-                            resultado.votos,
-                            resultado.partido.get_identificador_presentacion(),
-                            circunscripcion.nombre,
-                        )
-                    )
-        pairs.sort(key=lambda item: (item[0], item[1], item[2]))
-        lines = ["{0} en {1}: {2} votos".format(partido, circ, votos) for votos, partido, circ in pairs[0:10]]
-        return "Tomando n=10 como muestra inicial, las parejas con menos votos mayores que cero son:\n- {0}".format("\n- ".join(lines))
-
     def _label_item(self, item: Dict[str, object]) -> str:
-        if str(item["sigla"]):
-            return str(item["sigla"])
-        return str(item["nombre"])
+        sigla = str(item.get("sigla") or "").strip()
+        if sigla != "":
+            return sigla
+        return str(item.get("nombre") or "").strip()
 
     def _max_ratio_circ(self, election: EleccionCongreso2023, numerator, denominator) -> Tuple[str, float]:
         ranking: List[Tuple[str, float]] = []
@@ -731,16 +571,20 @@ class FunctionsService:
             top = int(numerator(circ) or 0)
             if base > 0:
                 ranking.append((circ.nombre, (float(top) / float(base)) * 100.0))
+        if len(ranking) == 0:
+            return ("Sin datos", 0.0)
         ranking.sort(key=lambda item: (-item[1], item[0]))
         return ranking[0]
 
-    def _max_ratio_community(self, election: EleccionCongreso2023, numerator_attr: str, denominator_attr: str) -> Tuple[str, float]:
+    def _max_ratio_community(self, community_summaries: List[Dict[str, object]], numerator_attr: str, denominator_attr: str) -> Tuple[str, float]:
         ranking: List[Tuple[str, float]] = []
-        for summary in self._build_all_community_summaries(election):
+        for summary in community_summaries:
             base = int(summary.get(denominator_attr) or 0)
             top = int(summary.get(numerator_attr) or 0)
             if base > 0:
                 ranking.append((str(summary["nombre"]), (float(top) / float(base)) * 100.0))
+        if len(ranking) == 0:
+            return ("Sin datos", 0.0)
         ranking.sort(key=lambda item: (-item[1], item[0]))
         return ranking[0]
 
@@ -787,31 +631,6 @@ class FunctionsService:
             if resultado.partido.codigo == winner_code:
                 continue
             next_divisor = resultado.escanos_calculados + 1
-    def _analyze_last_seat(self, circunscripcion: Circunscripcion) -> Optional[Dict[str, object]]:
-        quotients: List[Tuple[float, int, str, int]] = []
-        for resultado in circunscripcion.resultados_por_partido.values():
-            if resultado.votos <= 0:
-                continue
-            seats = max(circunscripcion.escanos_oficiales_totales, 1)
-            divisor = 1
-            while divisor <= seats:
-                quotients.append((float(resultado.votos) / float(divisor), resultado.votos, resultado.partido.codigo, divisor))
-                divisor = divisor + 1
-        if len(quotients) < circunscripcion.escanos_oficiales_totales or circunscripcion.escanos_oficiales_totales <= 0:
-            return None
-        quotients.sort(key=lambda item: (-item[0], -item[1], item[2], item[3]))
-        cutoff_index = circunscripcion.escanos_oficiales_totales - 1
-        last_winning = quotients[cutoff_index]
-        winner_code = str(last_winning[2])
-        winner = circunscripcion.resultados_por_partido[winner_code]
-        threshold = float(last_winning[0])
-
-        best_challenger_name = "Sin rival"
-        best_missing_votes: Optional[int] = None
-        for resultado in circunscripcion.resultados_por_partido.values():
-            next_divisor = resultado.escanos_calculados + 1
-            if resultado.partido.codigo == winner_code and resultado.escanos_calculados == last_winning[3]:
-                continue
             required_votes = int(math.floor(threshold * float(next_divisor))) + 1
             missing_votes = max(required_votes - resultado.votos, 0)
             if best_missing_votes is None or missing_votes < best_missing_votes:
@@ -819,82 +638,34 @@ class FunctionsService:
                 best_challenger = resultado.partido.get_identificador_presentacion()
         return {"winner": winner, "challenger": best_challenger, "votes_missing": best_missing_votes or 0}
 
-def _analyze_last_seat(self, circ: Circunscripcion) -> Optional[Dict[str, object]]:
-    quotients: List[Tuple[float, int, str, int]] = []
-
-    for resultado in circ.resultados_por_partido.values():
-        if resultado.votos <= 0:
-            continue
-
-        divisor = 1
-        while divisor <= max(circ.escanos_oficiales_totales, 1):
-            quotients.append(
-                (
-                    float(resultado.votos) / float(divisor),
-                    resultado.votos,
-                    resultado.partido.codigo,
-                    divisor,
-                )
-            )
-            divisor = divisor + 1
-
-    if len(quotients) < circ.escanos_oficiales_totales or circ.escanos_oficiales_totales <= 0:
-        return None
-
-    quotients.sort(key=lambda item: (-item[0], -item[1], item[2], item[3]))
-
-    last_winning = quotients[circ.escanos_oficiales_totales - 1]
-    winner_code = str(last_winning[2])
-    threshold = float(last_winning[0])
-    winner = circ.resultados_por_partido[winner_code].partido.get_identificador_presentacion()
-
-    best_challenger = "Sin rival"
-    best_missing_votes: Optional[int] = None
-
-    for resultado in circ.resultados_por_partido.values():
-        if resultado.partido.codigo == winner_code:
-            continue
-
-        next_divisor = resultado.escanos_calculados + 1
-        required_votes = int(math.floor(threshold * float(next_divisor))) + 1
-        missing_votes = max(required_votes - resultado.votos, 0)
-
-        if best_missing_votes is None or missing_votes < best_missing_votes:
-            best_missing_votes = missing_votes
-            best_challenger = resultado.partido.get_identificador_presentacion()
-
-    return {
-        "winner": winner,
-        "challenger": best_challenger,
-        "votes_missing": best_missing_votes or 0,
-    }
-
-    def _find_best_cost_per_seat_national(self, election: EleccionCongreso2023, reverse: bool) -> Tuple[str, float]:
+    def _find_cost_per_seat_national(self, election: EleccionCongreso2023, reverse: bool) -> Optional[Tuple[str, float]]:
         candidates: List[Tuple[str, float]] = []
         for item in election.obtener_resumen_nacional_por_partido():
             seats = int(item["escanos_oficiales"])
             if seats > 0:
                 candidates.append((self._label_item(item), float(item["votos"]) / float(seats)))
-        candidates.sort(key=lambda item: (item[1], item[0]), reverse=reverse)
+        if len(candidates) == 0:
+            return None
+        candidates.sort(key=lambda item: (item[1], item[0]))
+        if reverse:
+            candidates.reverse()
         return candidates[0]
 
-def _find_best_cost_per_seat_territorial(
-    self,
-    election: EleccionCongreso2023,
-    reverse: bool,
-) -> Tuple[str, float, str]:
-    candidates: List[Tuple[str, float, str]] = []
-
-    for circ in election.obtener_circunscripciones_ordenadas():
-        for resultado in circ.resultados_por_partido.values():
-            if resultado.escanos_oficiales > 0:
-                candidates.append(
-                    (
-                        resultado.partido.get_identificador_presentacion(),
-                        float(resultado.votos) / float(resultado.escanos_oficiales),
-                        circ.nombre,
+    def _find_cost_per_seat_territorial(self, election: EleccionCongreso2023, reverse: bool) -> Optional[Tuple[str, float, str]]:
+        candidates: List[Tuple[str, float, str]] = []
+        for circ in election.obtener_circunscripciones_ordenadas():
+            for resultado in circ.resultados_por_partido.values():
+                if resultado.escanos_oficiales > 0:
+                    candidates.append(
+                        (
+                            resultado.partido.get_identificador_presentacion(),
+                            float(resultado.votos) / float(resultado.escanos_oficiales),
+                            circ.nombre,
+                        )
                     )
-                )
-
-    candidates.sort(key=lambda item: (item[1], item[0], item[2]), reverse=reverse)
-    return candidates[0]
+        if len(candidates) == 0:
+            return None
+        candidates.sort(key=lambda item: (item[1], item[0], item[2]))
+        if reverse:
+            candidates.reverse()
+        return candidates[0]

@@ -35,7 +35,8 @@ class ChartGenerator:
         etiquetas: List[str] = []
         valores: List[int] = []
         for item in resumen:
-            etiqueta = str(item["sigla"]) if str(item["sigla"]) else str(item["nombre"])
+            sigla = str(item.get("sigla") or "").strip()
+            etiqueta = sigla if sigla != "" else str(item.get("nombre") or "").strip()
             etiquetas.append(etiqueta)
             valores.append(int(item["votos"]))
 
@@ -116,13 +117,17 @@ class ChartGenerator:
         return figure
 
     def _trim_series(self, labels: Sequence[str], values: Sequence[int], limit: int) -> Tuple[List[str], List[int]]:
+        safe_limit = max(int(limit), 1)
         pairs = [(str(label), int(value)) for label, value in zip(labels, values) if int(value) > 0]
         pairs.sort(key=lambda item: (-item[1], item[0]))
-        if len(pairs) <= limit:
+        if len(pairs) <= safe_limit:
             return [item[0] for item in pairs], [item[1] for item in pairs]
-        visible = pairs[: limit - 1]
+        if safe_limit == 1:
+            others_total = sum(item[1] for item in pairs)
+            return ["Otros"], [others_total]
+        visible = pairs[: safe_limit - 1]
         others_total = 0
-        for _, value in pairs[limit - 1 :]:
+        for _, value in pairs[safe_limit - 1 :]:
             others_total = others_total + value
         visible.append(("Otros", others_total))
         return [item[0] for item in visible], [item[1] for item in visible]

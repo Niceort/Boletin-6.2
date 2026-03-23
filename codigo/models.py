@@ -21,9 +21,7 @@ class Partido:
     sigla: str
 
     def get_identificador_presentacion(self) -> str:
-        if self.sigla:
-            return self.sigla
-        return self.nombre
+        return self.sigla.strip() or self.nombre.strip() or self.codigo.strip()
 
 
 @dataclass
@@ -37,13 +35,10 @@ class ResultadoPartido:
     def diferencia_escanos(self) -> int:
         return self.escanos_calculados - self.escanos_oficiales
 
-    def obtener_diferencia_escanos(self) -> int:
-        return self.diferencia_escanos
-
-    def obtener_porcentaje_voto(self, total_votos: int) -> float:
-        if total_votos <= 0:
+    def obtener_porcentaje_voto(self, total_votos_candidaturas: int) -> float:
+        if total_votos_candidaturas <= 0:
             return 0.0
-        return (float(self.votos) / float(total_votos)) * 100.0
+        return (float(self.votos) / float(total_votos_candidaturas)) * 100.0
 
 
 @dataclass
@@ -68,66 +63,39 @@ class Circunscripcion:
     resultados_por_partido: Dict[str, ResultadoPartido] = field(default_factory=dict)
 
     def agregar_resultado(self, resultado: ResultadoPartido) -> str:
-        identificador = resultado.partido.codigo
         if resultado.votos <= 0:
             return DomainMessageBuilder.build_confirmation(
-                "Se omitio el resultado del partido {0} en {1} por tener 0 votos.".format(
-                    resultado.partido.get_identificador_presentacion(), self.nombre
-                )
+                f"Se omitio el resultado de {resultado.partido.get_identificador_presentacion()} en {self.nombre} por tener 0 votos."
             )
-        self.resultados_por_partido[identificador] = resultado
+        self.resultados_por_partido[resultado.partido.codigo] = resultado
         return DomainMessageBuilder.build_confirmation(
-            "Se registro el resultado del partido {0} en la circunscripcion {1}.".format(
-                resultado.partido.get_identificador_presentacion(), self.nombre
-            )
+            f"Se registro el resultado de {resultado.partido.get_identificador_presentacion()} en {self.nombre}."
         )
 
     def obtener_resultados_ordenados_por_votos(self) -> List[ResultadoPartido]:
         resultados = list(self.resultados_por_partido.values())
-        resultados.sort(key=lambda elemento: (-elemento.votos, elemento.partido.nombre))
+        resultados.sort(key=lambda r: (-int(r.votos), r.partido.get_identificador_presentacion()))
         return resultados
 
     @property
     def total_votos_validos_calculado(self) -> int:
-        acumulado = 0
-        for resultado in self.resultados_por_partido.values():
-            acumulado = acumulado + resultado.votos
-        return acumulado
-
-    @property
-    def votos_totales_candidaturas_calculados(self) -> int:
-        return self.total_votos_validos_calculado
-
-    @property
-    def total_escanos_calculados(self) -> int:
-        acumulado = 0
-        for resultado in self.resultados_por_partido.values():
-            acumulado = acumulado + resultado.escanos_calculados
-        return acumulado
-
-    @property
-    def total_escanos_oficiales(self) -> int:
-        acumulado = 0
-        for resultado in self.resultados_por_partido.values():
-            acumulado = acumulado + resultado.escanos_oficiales
-        return acumulado
+        return sum(int(r.votos) for r in self.resultados_por_partido.values())
 
     @property
     def votos_validos_calculados(self) -> int:
-        return self.total_votos_validos_calculado + (self.votos_blanco_oficiales or 0)
+        return self.total_votos_validos_calculado + int(self.votos_blanco_oficiales or 0)
 
     @property
     def votos_emitidos_calculados(self) -> int:
-        return self.votos_validos_calculados + (self.votos_nulos_oficiales or 0)
+        return self.votos_validos_calculados + int(self.votos_nulos_oficiales or 0)
 
-    def obtener_porcentaje_partido(self, codigo_partido: str) -> float:
-        if codigo_partido not in self.resultados_por_partido:
-            return 0.0
-        total_votos = self.total_votos_validos_calculado
-        if total_votos == 0:
-            return 0.0
-        votos = self.resultados_por_partido[codigo_partido].votos
-        return (float(votos) / float(total_votos)) * 100.0
+    @property
+    def total_escanos_oficiales(self) -> int:
+        return sum(int(r.escanos_oficiales) for r in self.resultados_por_partido.values())
+
+    @property
+    def total_escanos_calculados(self) -> int:
+        return sum(int(r.escanos_calculados) for r in self.resultados_por_partido.values())
 
 
 @dataclass
@@ -140,47 +108,28 @@ class EleccionCongreso2023:
 
     def registrar_partido(self, partido: Partido) -> str:
         if partido.codigo in self.partidos:
-            partido_existente = self.partidos[partido.codigo]
-            if not partido_existente.nombre and partido.nombre:
-                partido_existente.nombre = partido.nombre
-            if not partido_existente.sigla and partido.sigla:
-                partido_existente.sigla = partido.sigla
-            return DomainMessageBuilder.build_confirmation(
-                "Se reutilizo el partido {0}.".format(partido.codigo)
-            )
+            actual = self.partidos[partido.codigo]
+            if not actual.nombre and partido.nombre:
+                actual.nombre = partido.nombre
+            if not actual.sigla and partido.sigla:
+                actual.sigla = partido.sigla
+            return DomainMessageBuilder.build_confirmation(f"Se reutilizo el partido {partido.codigo}.")
         self.partidos[partido.codigo] = partido
-        return DomainMessageBuilder.build_confirmation(
-            "Se registro el partido {0}.".format(partido.codigo)
-        )
+        return DomainMessageBuilder.build_confirmation(f"Se registro el partido {partido.codigo}.")
 
     def registrar_circunscripcion(self, circunscripcion: Circunscripcion) -> str:
         self.circunscripciones[circunscripcion.codigo] = circunscripcion
-        return DomainMessageBuilder.build_confirmation(
-            "Se registro la circunscripcion {0}.".format(circunscripcion.nombre)
-        )
+        return DomainMessageBuilder.build_confirmation(f"Se registro la circunscripcion {circunscripcion.nombre}.")
 
     def obtener_circunscripciones_ordenadas(self) -> List[Circunscripcion]:
-        elementos = list(self.circunscripciones.values())
-        elementos.sort(key=lambda circunscripcion: circunscripcion.nombre)
-        return elementos
-
-    def obtener_partidos_ordenados(self) -> List[Partido]:
-        elementos = list(self.partidos.values())
-        elementos.sort(key=lambda partido: partido.nombre)
-        return elementos
-
-    def obtener_resultados_de_partido(self, codigo_partido: str) -> List[ResultadoPartido]:
-        resultados: List[ResultadoPartido] = []
-        for circunscripcion in self.circunscripciones.values():
-            if codigo_partido in circunscripcion.resultados_por_partido:
-                resultados.append(circunscripcion.resultados_por_partido[codigo_partido])
-        resultados.sort(key=lambda resultado: (-resultado.votos, resultado.partido.nombre))
-        return resultados
+        items = list(self.circunscripciones.values())
+        items.sort(key=lambda c: (c.nombre, c.codigo))
+        return items
 
     def obtener_resumen_nacional_por_partido(self) -> List[Dict[str, object]]:
         resumen: Dict[str, Dict[str, object]] = {}
-        for circunscripcion in self.circunscripciones.values():
-            for resultado in circunscripcion.resultados_por_partido.values():
+        for circ in self.circunscripciones.values():
+            for resultado in circ.resultados_por_partido.values():
                 codigo = resultado.partido.codigo
                 if codigo not in resumen:
                     resumen[codigo] = {
@@ -190,10 +139,44 @@ class EleccionCongreso2023:
                         "votos": 0,
                         "escanos_oficiales": 0,
                         "escanos_calculados": 0,
+                        "circunscripciones_presentado": 0,
                     }
-                resumen[codigo]["votos"] = int(resumen[codigo]["votos"]) + resultado.votos
-                resumen[codigo]["escanos_oficiales"] = int(resumen[codigo]["escanos_oficiales"]) + resultado.escanos_oficiales
-                resumen[codigo]["escanos_calculados"] = int(resumen[codigo]["escanos_calculados"]) + resultado.escanos_calculados
-        lista = list(resumen.values())
-        lista.sort(key=lambda elemento: (-int(elemento["votos"]), str(elemento["nombre"])))
-        return lista
+                item = resumen[codigo]
+                item["votos"] += int(resultado.votos)
+                item["escanos_oficiales"] += int(resultado.escanos_oficiales)
+                item["escanos_calculados"] += int(resultado.escanos_calculados)
+                item["circunscripciones_presentado"] += 1
+        salida = list(resumen.values())
+        salida.sort(key=lambda x: (-int(x["votos"]), str(x["sigla"] or x["nombre"])))
+        return salida
+
+    def obtener_resumen_por_comunidad(self) -> List[Dict[str, object]]:
+        agregados: Dict[str, Dict[str, object]] = {}
+        for circ in self.obtener_circunscripciones_ordenadas():
+            nombre = circ.comunidad_autonoma.strip() or "Sin comunidad"
+            if nombre not in agregados:
+                agregados[nombre] = {
+                    "nombre": nombre,
+                    "poblacion": 0,
+                    "censo_cera": 0,
+                    "total_votantes_cera": 0,
+                    "total_votantes": 0,
+                    "votos_nulos_oficiales": 0,
+                    "votos_blanco_oficiales": 0,
+                    "ranking_votos": {},
+                    "ranking_escanos": {},
+                }
+            item = agregados[nombre]
+            item["poblacion"] += int(circ.poblacion or 0)
+            item["censo_cera"] += int(circ.censo_cera or 0)
+            item["total_votantes_cera"] += int(circ.total_votantes_cera or 0)
+            item["total_votantes"] += int(circ.total_votantes or 0)
+            item["votos_nulos_oficiales"] += int(circ.votos_nulos_oficiales or 0)
+            item["votos_blanco_oficiales"] += int(circ.votos_blanco_oficiales or 0)
+            for resultado in circ.resultados_por_partido.values():
+                label = resultado.partido.get_identificador_presentacion()
+                item["ranking_votos"][label] = int(item["ranking_votos"].get(label, 0)) + int(resultado.votos)
+                item["ranking_escanos"][label] = int(item["ranking_escanos"].get(label, 0)) + int(resultado.escanos_oficiales)
+        salida = list(agregados.values())
+        salida.sort(key=lambda x: str(x["nombre"]))
+        return salida

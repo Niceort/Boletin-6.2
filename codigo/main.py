@@ -20,5 +20,4 @@ class ApplicationLauncher:
 
 
 if __name__ == "__main__":
-    launcher = ApplicationLauncher()
-    launcher.launch()
+    ApplicationLauncher().launch()
